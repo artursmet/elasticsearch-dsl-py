@@ -4,7 +4,7 @@ from functools import partial
 
 from .search import Search
 from .filter import F
-from .aggs import Terms, DateHistogram, Histogram, Range
+from .aggs import Terms, DateHistogram, Histogram, Range, Nested
 from .utils import AttrDict
 from .result import Response
 
@@ -17,7 +17,7 @@ DATE_INTERVALS = {
 }
 
 
-def range_to_filter(aggregation, value):
+def range_to_filter(aggregation, value, **kwargs):
     aggregation_range = [r for r in aggregation.ranges if r['key'] == value]
     if not aggregation_range:
         return {}
@@ -30,13 +30,20 @@ def range_to_filter(aggregation, value):
     return F('range', **kwargs)
 
 
+def nested_to_filter(agg, value, **kwargs):
+    name = kwargs['name']
+    return F('nested', path=agg.path,
+             query=F('bool', must=[agg_to_filter(agg[name], value)]))
+
+
 AGG_TO_FILTER = {
     Terms: lambda a, v: F('term', **{a.field: v}),
     DateHistogram: lambda a, v: F(
         'range', **{a.field: {'gte': v, 'lt': DATE_INTERVALS[a.interval](v)}}),
     Histogram: lambda a, v:  F(
         'range', **{a.field: {'gte': v, 'lt': v+a.interval}}),
-    Range: range_to_filter
+    Range: range_to_filter,
+    Nested: nested_to_filter
 }
 
 BUCKET_TO_DATA = {
@@ -46,12 +53,14 @@ BUCKET_TO_DATA = {
         datetime.utcfromtimestamp(int(bucket['key']) / 1000),
         bucket['doc_count'], bucket['key'] in filter),
     Range: lambda bucket_key, bucket, filter: (
-        bucket_key, bucket['doc_count'], bucket_key in filter)
+        bucket_key, bucket['doc_count'], bucket_key in filter),
+    Nested: lambda bucket, filter: (
+        bucket['key'], bucket['doc_count'], bucket['key'] in filter),
 }
 
 
-def agg_to_filter(agg, value):
-    return AGG_TO_FILTER[agg.__class__](agg, value)
+def agg_to_filter(agg, value, **kwargs):
+    return AGG_TO_FILTER[agg.__class__](agg, value, **kwargs)
 
 
 class FacetedResponse(Response):
@@ -69,7 +78,10 @@ class FacetedResponse(Response):
             super(AttrDict, self).__setattr__('_facets', AttrDict({}))
             for name, agg in iteritems(self._search.facets):
                 buckets = self._facets[name] = []
-                data = self.aggregations['_filter_' + name][name]['buckets']
+                agg_data = self.aggregations['_filter_' + name][name]
+                if isinstance(agg, Nested):
+                    agg_data = agg_data[name]
+                data = agg_data['buckets']
                 filter = self._search._raw_filters.get(name, {})
                 for b in data:
                     agg_class = agg.__class__
@@ -107,12 +119,16 @@ class FacetedSearch(object):
 
     def add_filter(self, name, value):
         agg = self.facets[name]
+        agg_kwargs = {}
+
+        if isinstance(agg, Nested):
+            agg_kwargs['name'] = name
         if isinstance(value, list):
             self._filters[name] = F(
-                'bool', should=[agg_to_filter(agg, v) for v in value])
+                'bool', should=[agg_to_filter(agg, v, **agg_kwargs) for v in value])
             self._raw_filters[name] = value
         else:
-            self._filters[name] = agg_to_filter(agg, value)
+            self._filters[name] = agg_to_filter(agg, value, **agg_kwargs)
             self._raw_filters[name] = (value, )
 
     def search(self):
