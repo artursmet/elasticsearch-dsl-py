@@ -19,14 +19,13 @@ DATE_INTERVALS = {
 
 def range_to_filter(aggregation, value, **kwargs):
     aggregation_range = [r for r in aggregation.ranges if r['key'] == value]
-    if not aggregation_range:
-        return {}
-    aggregation_range = aggregation_range[0]
     kwargs = {aggregation.field: {}}
-    if aggregation_range.get('from') is not None:
-        kwargs[aggregation.field]['gte'] = aggregation_range['from']
-    if aggregation_range.get('to') is not None:
-        kwargs[aggregation.field]['lt'] = aggregation_range['to']
+    if aggregation_range:
+        aggregation_range = aggregation_range[0]
+        if aggregation_range.get('from') is not None:
+            kwargs[aggregation.field]['gte'] = aggregation_range['from']
+        if aggregation_range.get('to') is not None:
+            kwargs[aggregation.field]['lt'] = aggregation_range['to']
     return F('range', **kwargs)
 
 
