@@ -4,7 +4,7 @@ from functools import partial
 
 from .search import Search
 from .filter import F
-from .aggs import Terms, DateHistogram, Histogram
+from .aggs import Terms, DateHistogram, Histogram, Range
 from .utils import AttrDict
 from .result import Response
 
@@ -16,23 +16,76 @@ DATE_INTERVALS = {
 
 }
 
+def _date_histogram_to_data(agg, bucket, data, filter):
+    d = datetime.utcfromtimestamp(int(bucket['key']) / 1000)
+    return (d, bucket['doc_count'], d in filter)
+
+def _range_to_filter(aggregation, value, **kwargs):
+    kwargs[aggregation.field] = {}
+    aggregation_range = None
+    for r in aggregation.ranges:
+        if getattr(aggregation, 'keyed', False):
+            if r['key'] == value:
+                aggregation_range = r
+            else:
+                continue
+        else:
+            from_value = r.get('from')
+            to_value = r.get('to')
+            match = False
+            if to_value is not None:
+                if value < to_value:
+                    # to value matches, lets check from
+                    if from_value is not None:
+                        match = value >= from_value
+            else:
+                # to value is empty, only from makes sense
+                if from_value is not None:
+                    match = value >= from_value
+            if match:
+                aggregation_range = r
+
+    if aggregation_range:
+        if aggregation_range.get('from') is not None:
+            kwargs[aggregation.field]['gte'] = aggregation_range['from']
+        if aggregation_range.get('to') is not None:
+            kwargs[aggregation.field]['lt'] = aggregation_range['to']
+    return F('range', **kwargs)
+
+def _range_to_data(agg, bucket, data, filter):
+    if getattr(agg, 'keyed', False):
+        bucket_key = bucket
+        bucket = data[bucket]
+        range_filter = filter
+    else:
+        bucket_key = bucket['key']
+        range_filter = (
+            '%s-%s' % (f.get('from', '*'),
+                       f.get('to', '*')) for f in filter)
+    return (bucket_key, bucket['doc_count'], bucket_key in range_filter)
+
+BUCKET_TO_DATA = {
+    Terms: lambda agg, bucket, data, filter: (bucket['key'], bucket['doc_count'], bucket['key'] in filter),
+    DateHistogram: _date_histogram_to_data,
+    Range: _range_to_data
+}
+
 AGG_TO_FILTER = {
     Terms: lambda a, v: F('term', **{a.field: v}),
     DateHistogram: lambda a, v: F('range', **{a.field: {'gte': v, 'lt': DATE_INTERVALS[a.interval](v)}}),
     Histogram: lambda a, v:  F('range', **{a.field: {'gte': v, 'lt': v+a.interval}}),
-}
-
-def _date_histogram_to_data(bucket, filter):
-    d = datetime.utcfromtimestamp(int(bucket['key']) / 1000)
-    return (d, bucket['doc_count'], d in filter)
-
-BUCKET_TO_DATA = {
-    Terms: lambda bucket, filter: (bucket['key'], bucket['doc_count'], bucket['key'] in filter),
-    DateHistogram: _date_histogram_to_data,
+    Range: _range_to_filter
 }
 
 def agg_to_filter(agg, value):
     return AGG_TO_FILTER[agg.__class__](agg, value)
+
+def bucket_to_data(agg, data, filter):
+    buckets = []
+    for bucket in data:
+        buckets.append(
+            BUCKET_TO_DATA[agg.__class__](agg, bucket, data, filter))
+    return buckets
 
 
 class FacetedResponse(Response):
@@ -49,11 +102,9 @@ class FacetedResponse(Response):
         if not hasattr(self, '_facets'):
             super(AttrDict, self).__setattr__('_facets', AttrDict({}))
             for name, agg in iteritems(self._search.facets):
-                buckets = self._facets[name] = []
                 data = self.aggregations['_filter_' + name][name]['buckets']
                 filter = self._search._raw_filters.get(name, ())
-                for b in data:
-                    buckets.append(BUCKET_TO_DATA[agg.__class__](b, filter))
+                self._facets[name] = bucket_to_data(agg, data, filter)
         return self._facets
 
 
@@ -150,4 +201,3 @@ class FacetedSearch(object):
             self._response = s.execute(response_class=partial(FacetedResponse, self))
 
         return self._response
-

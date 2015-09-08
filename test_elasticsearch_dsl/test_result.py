@@ -27,7 +27,7 @@ def test_enpty_response_is_false(dummy_response):
 
 def test_len_response(dummy_response):
     res = result.Response(dummy_response)
-    assert len(dummy_response) == 4
+    assert len(dummy_response) == 5
 
 def test_iterating_over_response_gives_you_hits(dummy_response):
     res = result.Response(dummy_response)
@@ -73,4 +73,3 @@ def test_slicing_on_response_slices_on_hits(dummy_response):
 
     assert res[0] is res.hits[0]
     assert res[::-1] == res.hits[::-1]
-

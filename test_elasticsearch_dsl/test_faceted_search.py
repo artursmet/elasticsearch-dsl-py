@@ -1,5 +1,5 @@
 from datetime import datetime
-from elasticsearch_dsl.faceted_search import FacetedSearch, agg_to_filter
+from elasticsearch_dsl.faceted_search import FacetedSearch, FacetedResponse, agg_to_filter
 from elasticsearch_dsl import A, F
 
 class BlogSearch(FacetedSearch):
@@ -8,7 +8,7 @@ class BlogSearch(FacetedSearch):
 
     facets = {
         'category': A('terms', field='category.raw'),
-        'tags': A('terms', field='tags'),
+        'tags': A('terms', field='tags')
     }
 
 
@@ -23,6 +23,30 @@ def test_agg_filter_for_date_histograms():
     f = agg_to_filter(a, datetime(2014, 12, 1))
 
     assert f == F('range', published_date={'gte': datetime(2014, 12, 1), 'lt': datetime(2015, 1, 1)})
+
+def test_range_filter_for_keyed_range():
+    agg = A('range',
+        field='price', keyed=True, ranges=[
+            {'key': 'Cheap', 'to': 50},
+            {'key': 'Mid', 'from': 50, 'to': 60},
+            {'key': 'Expensive', 'from': 60}
+        ]
+    )
+    agg_filter = agg_to_filter(agg, 'Mid')
+    assert agg_filter == F('range', price={'gte': 50, 'lt': 60})
+
+def test_range_filter():
+    agg = A('range',
+        field='price', ranges=[
+            {'to': 50},
+            {'from': 50}
+        ]
+    )
+    agg_filter = agg_to_filter(agg, 50)
+    assert agg_filter == F('range', price={'gte': 50})
+
+def test_range_bucket_to_data():
+    pass
 
 def test_query_is_created_properly():
     bs = BlogSearch('python search')
@@ -111,7 +135,7 @@ def test_filters_are_applied_to_search_ant_relevant_facets():
         'post_filter': {
             'bool': {
                 'must': [
-                    {'term': {'category.raw': 'elastic'}} 
+                    {'term': {'category.raw': 'elastic'}}
                 ],
                 'should': [
                     {'term': {'tags': 'python'}},
@@ -121,4 +145,3 @@ def test_filters_are_applied_to_search_ant_relevant_facets():
         },
         'highlight': {'fields': {'body': {}, 'title': {}}}
     } == d
-
