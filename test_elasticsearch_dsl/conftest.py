@@ -130,3 +130,70 @@ def dummy_response():
       "took": 123
     }
 
+@fixture
+def faceted_response():
+    return {
+        "_shards": {
+            "failed": 0,
+            "successful": 10,
+            "total": 10
+        },
+        "hits": {
+            "hits": []
+        },
+        "aggregations": {
+            "_filter_price": {
+                "doc_count": 100,
+                "price": {
+                    "buckets": {
+                        "Under 60": {
+                            "to": 60,
+                            "to_as_string": "60",
+                            "doc_count": 10
+                        },
+                        "60-150": {
+                            "from": 60,
+                            "from_as_string": "60.0",
+                            "to": 150,
+                            "to_as_string": "150",
+                            "doc_count": 70
+                        },
+                        "150+": {
+                            "from": 150,
+                            "from_as_string": "150.0",
+                            "doc_count": 20
+                        }
+                    }
+                }
+            },
+            "_filter_availability": {
+                "doc_count": 100,
+                "availability": {
+                    "buckets": [
+                        {
+                            "key": "*-0.0",
+                            "to": 0,
+                            "to_as_string": "0.0",
+                            "doc_count": 10
+                        },
+                        {
+                            "key": "0.0-5.0",
+                            "from": 0,
+                            "from_as_string": "0.0",
+                            "to": 5,
+                            "to_as_string": "5.0",
+                            "doc_count": 20
+                        },
+                        {
+                            "key": "5.0-*",
+                            "from": 5,
+                            "from_as_string": "5.0",
+                            "doc_count": 70
+                        }
+                    ]
+                }
+            }
+        },
+        "timed_out": False,
+        "took": 123
+    }

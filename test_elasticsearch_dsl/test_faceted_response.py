@@ -18,9 +18,9 @@ class ProductSearch(FacetedSearch):
         ])
     }
 
-def test_faceted_response(dummy_response):
+def test_faceted_response(faceted_response):
     bs = ProductSearch('white tshirt')
-    response = FacetedResponse(bs, dummy_response)
+    response = FacetedResponse(bs, faceted_response)
     assert {
         'availability': [
             ('*-0.0', 10, False),
@@ -30,6 +30,24 @@ def test_faceted_response(dummy_response):
         'price': [
             ('60-150', 70, False),
             ('Under 60', 10, False),
-            ('150+', 30, False)
+            ('150+', 20, False)
+        ]
+    } == response.facets.to_dict()
+
+
+def test_faceted_response_with_filter(faceted_response):
+    bs = ProductSearch('white tshirt')
+    bs._raw_filters['price'] = '60-150'
+    response = FacetedResponse(bs, faceted_response)
+    assert {
+        'availability': [
+            ('*-0.0', 10, False),
+            ('0.0-5.0', 20, False),
+            ('5.0-*', 70, False)
+        ],
+        'price': [
+            ('60-150', 70, True),
+            ('Under 60', 10, False),
+            ('150+', 20, False)
         ]
     } == response.facets.to_dict()
